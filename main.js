@@ -28,8 +28,22 @@ const END = "<!-- sunday:generated:end -->";
 const MEMO_HEADING = "## 利用者メモ";
 const MEMO_GUARD = "<!-- この節は同期で自動上書きしない -->";
 const TASK_MARK = /^\s*[-*+] \[([ xX])\] .*<!-- sunday-task:([0-9a-f-]{36}) -->\s*$/;
-const PLUGIN_VERSION = "0.2.0";
+const PLUGIN_VERSION = "0.3.0";
 const ACTIVE_KEY = "sunday-bridge-active";
+
+// グラフビューの色分け（上にあるものほど優先）。Sunday がノートに付ける管理用タグで見分ける
+const GRAPH_GROUPS = [
+  ["tag:#sunday/index", 0xf5c542, "ホーム・一覧"],
+  ["tag:#sunday/topic", 0xa78bfa, "話題"],
+  ["tag:#sunday/project", 0x3b82f6, "プロジェクト"],
+  ["tag:#sunday/area", 0x22d3ee, "領域"],
+  ["tag:#sunday/resource", 0x22c55e, "調べもの"],
+  ["tag:#sunday/daily", 0xf97316, "日記"],
+  ["tag:#sunday/task", 0xeab308, "タスク"],
+  ["tag:#sunday/inbox", 0xef4444, "Inbox"],
+  ["tag:#sunday/timeline", 0x9ca3af, "行動記録"],
+];
+const GRAPH_SEARCH = '-path:"Sunday/_System"';
 
 const DEFAULT_SETTINGS = {
   serverUrl: "",
@@ -193,6 +207,7 @@ module.exports = class SundayBridge extends Plugin {
 
     this.addSettingTab(new SundaySettingTab(this.app, this));
     this.addCommand({ id: "sync-now", name: "今すぐ同期", callback: () => this.syncNow(true) });
+    this.addCommand({ id: "graph-style", name: "グラフの色分けを設定", callback: () => this.applyGraphStyle() });
 
     this.registerEvent(this.app.vault.on("modify", (file) => this.onModify(file)));
     this.registerEvent(this.app.vault.on("delete", (file) => this.onDelete(file)));
@@ -405,6 +420,32 @@ module.exports = class SundayBridge extends Plugin {
     }
   }
 
+  // グラフビューの設定（<設定フォルダ>/graph.json）に Sunday 用の色分けを入れる。
+  // 利用者が自分で作った色グループや、その他の表示設定は残す。この端末の中だけの変更で、サーバーへは送らない
+  async applyGraphStyle() {
+    const path = `${this.app.vault.configDir}/graph.json`;
+    const adapter = this.app.vault.adapter;
+    let config = {};
+    try {
+      if (await adapter.exists(path)) config = JSON.parse(await adapter.read(path)) || {};
+    } catch (e) {
+      config = {};
+    }
+    const ours = new Set(GRAPH_GROUPS.map(([query]) => query));
+    const mine = (config.colorGroups || []).filter((g) => !ours.has(g.query));
+    config.colorGroups = [...GRAPH_GROUPS.map(([query, rgb]) => ({ query, color: { a: 1, rgb } })), ...mine];
+    config.showTags = true;
+    config.showOrphans = false;
+    if (!config.search) config.search = GRAPH_SEARCH;
+    else if (!config.search.includes(GRAPH_SEARCH)) config.search = `${config.search} ${GRAPH_SEARCH}`;
+    await adapter.write(path, JSON.stringify(config, null, 2));
+    // 開いているグラフは設定を読み直さないので、閉じて開き直す
+    const opened = this.app.workspace.getLeavesOfType("graph");
+    opened.forEach((leaf) => leaf.detach());
+    if (opened.length) this.app.commands.executeCommandById("graph:open");
+    new Notice("Sunday: グラフの色分けを設定しました");
+  }
+
   async removePreview() {
     const folder = this.app.vault.getAbstractFileByPath(PREVIEW);
     if (folder instanceof TFolder) await this.app.vault.delete(folder, true);
@@ -609,6 +650,15 @@ class SundaySettingTab extends PluginSettingTab {
           await this.plugin.syncNow(true);
           this.display();
         }));
+    }
+    const graph = new Setting(containerEl)
+      .setName("グラフの色分けを設定")
+      .setDesc("グラフビューで、Sunday のノートを種類ごとに色分けし、タグも点として表示する。自分で作った色グループは残る。")
+      .addButton((b) => b.setButtonText("設定する").onClick(() => this.plugin.applyGraphStyle()));
+    const legend = graph.descEl.createDiv();
+    for (const [, rgb, label] of GRAPH_GROUPS) {
+      const item = legend.createSpan({ text: `● ${label}　` });
+      item.style.color = `#${rgb.toString(16).padStart(6, "0")}`;
     }
     this.renderAttention(containerEl);
   }
