@@ -28,7 +28,7 @@ const END = "<!-- sunday:generated:end -->";
 const MEMO_HEADING = "## 利用者メモ";
 const MEMO_GUARD = "<!-- この節は同期で自動上書きしない -->";
 const TASK_MARK = /^\s*[-*+] \[([ xX])\] .*<!-- sunday-task:([0-9a-f-]{36}) -->\s*$/;
-const PLUGIN_VERSION = "0.3.0";
+const PLUGIN_VERSION = "0.4.0";
 const ACTIVE_KEY = "sunday-bridge-active";
 
 // グラフビューの色分け（上にあるものほど優先）。Sunday がノートに付ける管理用タグで見分ける
@@ -208,6 +208,9 @@ module.exports = class SundayBridge extends Plugin {
     this.addSettingTab(new SundaySettingTab(this.app, this));
     this.addCommand({ id: "sync-now", name: "今すぐ同期", callback: () => this.syncNow(true) });
     this.addCommand({ id: "graph-style", name: "グラフの色分けを設定", callback: () => this.applyGraphStyle() });
+    // 外から（Local REST API のコマンド実行など）でも、同期を受け持つ端末を切り替えられるようにする
+    this.addCommand({ id: "activate-device", name: "この端末で同期を受け持つ", callback: () => this.switchDevice(true) });
+    this.addCommand({ id: "deactivate-device", name: "この端末での同期をやめる", callback: () => this.switchDevice(false) });
 
     this.registerEvent(this.app.vault.on("modify", (file) => this.onModify(file)));
     this.registerEvent(this.app.vault.on("delete", (file) => this.onDelete(file)));
@@ -232,6 +235,15 @@ module.exports = class SundayBridge extends Plugin {
 
   setActiveDevice(active) {
     this.app.saveLocalStorage(ACTIVE_KEY, active ? "1" : null);
+  }
+
+  async switchDevice(active) {
+    this.setActiveDevice(active);
+    new Notice(active ? "Sunday: この端末で同期を受け持ちます" : "Sunday: この端末での同期をやめました");
+    if (active) {
+      await this.scanImports();
+      await this.syncNow(false);
+    }
   }
 
   restartTimer() {

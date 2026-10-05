@@ -1,7 +1,7 @@
 {
   "id": "sunday-obsidian-bridge",
   "name": "Sunday Obsidian Bridge",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "minAppVersion": "1.4.0",
   "description": "Sunday の自宅サーバーと Sunday/ フォルダのノートを同期する（セカンドブレイン機能）。",
   "author": "fukutarou",
